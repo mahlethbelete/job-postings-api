@@ -20,6 +20,7 @@ type AppState = Arc<PostingStore>;
 pub fn router(store: PostingStore) -> Router {
     Router::new()
         .route("/postings", get(list_postings))
+        .route("/postings/search", get(search_postings))
         .route("/postings/{id}", get(get_posting))
         .with_state(Arc::new(store))
 }
@@ -90,4 +91,57 @@ async fn get_posting(
         .cloned()
         .map(Json)
         .ok_or(ApiError::NotFound(id))
+}
+
+#[derive(Debug, Deserialize)]
+struct Filters {
+    company: Option<String>,
+    role: Option<String>,
+    location: Option<String>,
+}
+
+impl Filters {
+    fn normalize(self) -> Result<Self, ApiError> {
+        let clean = |value: Option<String>| {
+            value
+                .map(|v| v.trim().to_lowercase())
+                .filter(|v| !v.is_empty())
+        };
+        let filters = Self {
+            company: clean(self.company),
+            role: clean(self.role),
+            location: clean(self.location),
+        };
+        if filters.company.is_none() && filters.role.is_none() && filters.location.is_none() {
+            return Err(ApiError::BadRequest(
+                "provide at least one filter: company, role or location".into(),
+            ));
+        }
+        Ok(filters)
+    }
+
+    fn matches(&self, posting: &JobPosting) -> bool {
+        field_matches(&posting.company, self.company.as_deref())
+            && field_matches(&posting.title, self.role.as_deref())
+            && field_matches(&posting.location, self.location.as_deref())
+    }
+}
+
+fn field_matches(value: &str, filter: Option<&str>) -> bool {
+    filter.is_none_or(|f| value.to_lowercase().contains(f))
+}
+
+async fn search_postings(
+    State(store): State<AppState>,
+    filters: Result<Query<Filters>, QueryRejection>,
+    pagination: Result<Query<Pagination>, QueryRejection>,
+) -> Result<Json<Page>, ApiError> {
+    let filters = filters?.0.normalize()?;
+    let (page, per_page) = pagination?.0.resolve()?;
+    let matches: Vec<&JobPosting> = store
+        .all()
+        .iter()
+        .filter(|posting| filters.matches(posting))
+        .collect();
+    Ok(Json(paginate(matches.into_iter(), page, per_page)))
 }
