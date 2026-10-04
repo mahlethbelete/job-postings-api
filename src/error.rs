@@ -26,7 +26,13 @@ impl IntoResponse for ApiError {
             ApiError::NotFound(_) => StatusCode::NOT_FOUND,
             ApiError::BadRequest(_) => StatusCode::BAD_REQUEST,
         };
-        (status, Json(ErrorBody { error: self.to_string() })).into_response()
+        (
+            status,
+            Json(ErrorBody {
+                error: self.to_string(),
+            }),
+        )
+            .into_response()
     }
 }
 
