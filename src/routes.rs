@@ -2,7 +2,10 @@ use std::sync::Arc;
 
 use axum::{
     Json, Router,
-    extract::{Query, State, rejection::QueryRejection},
+    extract::{
+        Path, Query, State,
+        rejection::{PathRejection, QueryRejection},
+    },
     routing::get,
 };
 use serde::{Deserialize, Serialize};
@@ -17,6 +20,7 @@ type AppState = Arc<PostingStore>;
 pub fn router(store: PostingStore) -> Router {
     Router::new()
         .route("/postings", get(list_postings))
+        .route("/postings/{id}", get(get_posting))
         .with_state(Arc::new(store))
 }
 
@@ -74,4 +78,16 @@ async fn list_postings(
 ) -> Result<Json<Page>, ApiError> {
     let (page, per_page) = pagination?.0.resolve()?;
     Ok(Json(paginate(store.all().iter(), page, per_page)))
+}
+
+async fn get_posting(
+    State(store): State<AppState>,
+    id: Result<Path<u32>, PathRejection>,
+) -> Result<Json<JobPosting>, ApiError> {
+    let Path(id) = id?;
+    store
+        .get(id)
+        .cloned()
+        .map(Json)
+        .ok_or(ApiError::NotFound(id))
 }
